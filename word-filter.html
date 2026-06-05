@@ -580,8 +580,7 @@
         </button>
     </nav>
 
-    <!-- PDF生成库 -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- PDF导出使用浏览器原生打印，完美支持中文 -->
     <script>
         // ============ 数据层 ============
 
@@ -1570,88 +1569,79 @@
             btn.textContent = '⏳ 正在生成PDF...';
 
             try {
-                const { jsPDF } = window.jspdf;
-                const doc = new jsPDF({
-                    orientation: 'portrait',
-                    unit: 'mm',
-                    format: 'a4',
-                });
-
-                // 加载中文字体支持（使用内置字体 + Unicode）
-                const pageWidth = doc.internal.pageSize.getWidth();
-                const pageHeight = doc.internal.pageSize.getHeight();
-                const margin = 15;
-                const usableWidth = pageWidth - 2 * margin;
-
-                // 标题
-                doc.setFontSize(20);
-                doc.setTextColor(44, 62, 80);
-                doc.text('我的生词本', pageWidth / 2, 25, { align: 'center' });
-
-                // 副标题
-                doc.setFontSize(11);
-                doc.setTextColor(127, 140, 141);
                 const bank = state.wordBanks.find(b => b.id === state.selectedBank);
                 const bankName = bank ? bank.name : '未知词库';
-                doc.text(`词库: ${bankName}  |  共 ${state.vocabList.length} 个生词  |  ${new Date().toLocaleDateString('zh-CN')}`, pageWidth / 2, 33, { align: 'center' });
+                const dateStr = new Date().toLocaleDateString('zh-CN');
 
-                // 分隔线
-                doc.setDrawColor(189, 195, 199);
-                doc.line(margin, 38, pageWidth - margin, 38);
+                // 构建打印用的 HTML
+                const wordsHTML = state.vocabList.map((v, i) => `
+                    <tr>
+                        <td class="num">${i + 1}</td>
+                        <td class="word">${v.word}</td>
+                        <td class="meaning">${v.meaning || ''}</td>
+                    </tr>
+                `).join('');
 
-                // 表格头
-                let y = 46;
-                doc.setFontSize(13);
-                doc.setTextColor(44, 62, 80);
-                doc.setFont(undefined, 'bold');
-                doc.text('单词', margin, y);
-                doc.text('释义', margin + 55, y);
+                const printHTML = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>生词本</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif; padding: 24px 20px; color: #2c3e50; }
+  .header { text-align: center; margin-bottom: 16px; }
+  .header h1 { font-size: 22px; margin-bottom: 4px; }
+  .header .info { font-size: 12px; color: #7f8c8d; }
+  .divider { border: none; border-top: 1px solid #bdc3c7; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 6px; border-bottom: 2px solid #ecf0f1; font-size: 14px; color: #2c3e50; }
+  td { padding: 7px 6px; border-bottom: 1px solid #f5f6fa; vertical-align: top; }
+  .num { width: 32px; color: #95a5a6; text-align: right; padding-right: 8px; }
+  .word { font-weight: 700; width: 120px; color: #2c3e50; }
+  .meaning { color: #34495e; line-height: 1.5; }
+  .footer { text-align: center; margin-top: 20px; font-size: 11px; color: #bdc3c7; }
+  @media print {
+    body { padding: 12px 8px; }
+    table { page-break-inside: auto; }
+    tr { page-break-inside: avoid; }
+    @page { margin: 12mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="header">
+    <h1>📖 我的生词本</h1>
+    <div class="info">词库: ${bankName} | 共 ${state.vocabList.length} 个生词 | ${dateStr}</div>
+  </div>
+  <hr class="divider">
+  <table>
+    <thead>
+      <tr><th class="num">#</th><th class="word">单词</th><th class="meaning">释义</th></tr>
+    </thead>
+    <tbody>
+      ${wordsHTML}
+    </tbody>
+  </table>
+  <div class="footer">— Web筛词器 —</div>
+</body>
+</html>`;
 
-                // 分隔线
-                y += 4;
-                doc.setDrawColor(236, 240, 241);
-                doc.line(margin, y, pageWidth - margin, y);
-                y += 6;
-
-                // 单词列表
-                doc.setFont(undefined, 'normal');
-                doc.setFontSize(11);
-
-                for (let i = 0; i < state.vocabList.length; i++) {
-                    const v = state.vocabList[i];
-
-                    // 检查是否需要新页
-                    if (y > pageHeight - 25) {
-                        doc.addPage();
-                        y = 20;
-                    }
-
-                    // 序号
-                    doc.setTextColor(149, 165, 166);
-                    doc.text(`${i + 1}.`, margin, y);
-
-                    // 单词
-                    doc.setTextColor(44, 62, 80);
-                    doc.setFont(undefined, 'bold');
-                    doc.text(v.word, margin + 8, y);
-                    doc.setFont(undefined, 'normal');
-
-                    // 释义
-                    const meaningText = v.meaning || '';
-                    // 截断过长的释义
-                    const maxChars = 55;
-                    const displayMeaning = meaningText.length > maxChars
-                        ? meaningText.substring(0, maxChars) + '...'
-                        : meaningText;
-                    doc.setTextColor(52, 73, 94);
-                    doc.text(displayMeaning, margin + 55, y);
-
-                    y += 8;
+                // 在新窗口中打印（用户可选择"另存为PDF"）
+                const printWin = window.open('', '_blank', 'width=800,height=600');
+                if (!printWin) {
+                    showToast('请允许弹出窗口以导出PDF');
+                    return;
                 }
-
-                // 保存PDF
-                doc.save(`生词本_${new Date().toISOString().slice(0,10)}.pdf`);
-                showToast('PDF已导出并下载 ✅');
+                printWin.document.write(printHTML);
+                printWin.document.close();
+                printWin.focus();
+                // 等渲染完成后触发打印
+                setTimeout(() => {
+                    printWin.print();
+                    showToast('请在打印对话框中选择"另存为PDF" 💾');
+                }, 400);
             } catch (err) {
                 console.error('PDF导出失败:', err);
                 showToast('PDF导出失败，请重试');
